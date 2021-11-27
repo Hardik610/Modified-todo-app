@@ -1,9 +1,12 @@
 import json
+import os
 import secrets
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from functools import wraps
 
+import jwt
 import flask_bcrypt
 from flask import Flask, render_template, url_for, redirect, request, Response, jsonify
 from flask_sqlalchemy import SQLAlchemy
@@ -17,16 +20,15 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 schedule_mail = BlockingScheduler()
 app = Flask(__name__)
 db = SQLAlchemy(app)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
-app.config['SECRET_KEY'] = '********'
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY')
 INCOMING_DATE_FMT = '%d/%m/%Y %H:%M:%S'
-
 
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = "login"
-sender_address = 'abc@gmail.com'
-receiver_address = 'abc1@gmail.com'
+sender_address = os.environ.get('SENDER_EMAIL')
+email_password = os.environ.get('EMAIL_PASSWORD')
 mail_content = '''Hello,
 This is a mail regarding due date of a pending Task, Please complete it before due date.
 Thank You'''
@@ -40,7 +42,7 @@ def send_mail(email):
     message.attach(MIMEText(mail_content, 'plain'))
     server = smtplib.SMTP('smtp.gmail.com', 587)
     server.starttls()
-    server.login(sender_address, "******")
+    server.login(sender_address, email_password)
     text = message.as_string()
     server.sendmail(sender_address, email, text)
     server.quit()
@@ -117,6 +119,28 @@ class LoginForm(FlaskForm):
     submit = SubmitField("Login")
 
 
+def token_required(f):
+    @wraps(f)
+    def decorator(*args, **kwargs):
+        token = None
+        if 'x-access-tokens' in request.headers:
+            token = request.headers['x-access-tokens']
+        if not token:
+            return jsonify({'message': 'a valid token is missing'})
+        try:
+            print(token)
+            print(app.config['SECRET_KEY'])
+            final = jwt.decode(token, app.config['SECRET_KEY'], algorithms="HS256")
+            print(final)
+            current_user = User.query.filter_by(username=final['username']).first()
+        except Exception as e:
+            print(e)
+            return jsonify({'message': 'token is invalid'})
+        return f(current_user, *args, **kwargs)
+
+    return decorator
+
+
 @app.route('/')
 def home():  # put application's code here
     return render_template('home.html')
@@ -130,7 +154,10 @@ def login():
         if user_info:
             if flask_bcrypt.check_password_hash(user_info.password, form.password.data):
                 login_user(user_info)
-                return redirect(url_for('dashboard'))
+                token = jwt.encode(
+                    {'username': user_info.username, 'exp': datetime.utcnow() + timedelta(minutes=30)},
+                    app.config['SECRET_KEY'])
+                return jsonify({'token': token})
     return render_template('login.html', form=form)
 
 
@@ -158,8 +185,10 @@ def register():
     return render_template('register.html', form=form)
 
 
-@app.route('/api/v1/<username>/task', methods=['GET', 'POST'])
-def create_task(username):
+@app.route('/api/v1/task', methods=['GET', 'POST'])
+@token_required
+def create_task(current_user):
+    username = current_user.username
     if request.method == 'GET':
         try:
             user_info = User.query.filter_by(username=username).first()
@@ -196,7 +225,8 @@ def create_task(username):
 
 
 @app.route('/api/v1/searchTask', methods=['GET'])
-def search_task():
+@token_required
+def search_task(current_user):
     title = request.args.get('title')
     task = Task.query.filter_by(name=title).first()
     data = {'name': task.name, 'description': task.description, 'due_date': task.due_date, 'completed': task.completed}
@@ -204,7 +234,8 @@ def search_task():
 
 
 @app.route('/api/v1/getTask', methods=['GET'])
-def get_task():
+@token_required
+def get_task(current_user):
     status = request.args.get('status', default=False, type=lambda v: v.lower() == 'true')
     tasks = Task.query.filter_by(completed=bool(status))
     data = []
@@ -215,7 +246,8 @@ def get_task():
 
 
 @app.route('/api/v1/completeTask', methods=['GET'])
-def complete_task():
+@token_required
+def complete_task(current_user):
     task_id = request.args.get('task_id')
     task = Task.query.filter_by(id=task_id).first()
     task.completed = True
@@ -227,8 +259,10 @@ def complete_task():
     return "Task completed with subtask"
 
 
-@app.route('/api/v1/<username>/filterTask', methods=['GET'])
-def filter_task(username):
+@app.route('/api/v1/filterTask', methods=['GET'])
+@token_required
+def filter_task(current_user):
+    username = current_user.username
     filter_task_option = request.args.get('filter')
     user_info = User.query.filter_by(username=username).first()
     filtered_task = Task.query.filter_by(user_id=user_info.id)
@@ -269,9 +303,10 @@ def filter_task(username):
 
 
 @app.route('/api/v1/<task>/setAlert', methods=['GET'])
-def set_alert(task):
+@token_required
+def set_alert(current_user, task):
     hours_before_due_date = request.args.get('hours')
-    username = request.args.get('username')
+    username = current_user.username
     user_info = User.query.filter_by(username=username).first()
     task_info = Task.query.filter_by(name=task).first()
     alert_time = task_info.due_date - timedelta(hours=int(hours_before_due_date))
@@ -281,7 +316,8 @@ def set_alert(task):
 
 
 @app.route('/api/v1/<task>/subtask', methods=['GET', 'POST'])
-def create_subtask(task):
+@token_required
+def create_subtask(current_user, task):
     if request.method == 'GET':
         try:
             task_info = Task.query.filter_by(name=task).first()
