@@ -61,7 +61,7 @@ def load_user(userID):
 class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(20), nullable=False, unique=True)
-    password = db.Column(db.Unicode, nullable=False)
+    password = db.Column(db.String(150), nullable=False)
     email = db.Column(db.Unicode, nullable=False)
     token = db.Column(db.Unicode, nullable=False)
     date_joined = db.Column(db.DateTime, nullable=False)
@@ -180,7 +180,7 @@ def dashboard():
 def register():
     form = RegisterForm()
     if form.validate_on_submit():
-        hashed_password = flask_bcrypt.generate_password_hash(form.password.data)
+        hashed_password = flask_bcrypt.generate_password_hash(form.password.data).decode('utf-8')
         new_user = User(username=form.username.data, password=hashed_password, email=form.email.data)
         db.session.add(new_user)
         db.session.commit()
