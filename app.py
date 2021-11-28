@@ -232,7 +232,7 @@ def create_task(current_user):
 @token_required
 def search_task(current_user):
     title = request.args.get('title')
-    task = Task.query.filter(and_(Task.name.like(title), Task.user_id.like(current_user.id))).first()
+    task = Task.query.filter(and_(Task.name.like(title), Task.user_id == current_user.id)).first()
     data = {'name': task.name, 'description': task.description, 'due_date': task.due_date, 'completed': task.completed}
     return jsonify(data)
 
@@ -241,7 +241,7 @@ def search_task(current_user):
 @token_required
 def get_task(current_user):
     status = request.args.get('status', default=False, type=lambda v: v.lower() == 'true')
-    tasks = Task.query.filter(and_(Task.completed.is_(bool(status)), Task.user_id.like(current_user.id)))
+    tasks = Task.query.filter(and_(Task.completed.is_(bool(status)), Task.user_id == current_user.id))
     data = []
     for task in tasks:
         data.append({'name': task.name, 'description': task.description, 'due_date': task.due_date,
@@ -253,7 +253,7 @@ def get_task(current_user):
 @token_required
 def complete_task(current_user):
     task_name = request.get_json()['task_name']
-    task = Task.query.filter(and_(Task.name.like(task_name), Task.user_id.like(current_user.id))).first()
+    task = Task.query.filter(and_(Task.name.like(task_name), Task.user_id == current_user.id)).first()
     task.completed = True
     db.session.commit()
     subtasks = Subtask.query.filter_by(task_id=task.id)
@@ -312,7 +312,7 @@ def set_alert(current_user, task):
     hours_before_due_date = request.args.get('hours')
     username = current_user.username
     user_info = User.query.filter_by(username=username).first()
-    task_info = Task.query.filter(and_(Task.name.like(task), Task.user_id.like(current_user.id))).first()
+    task_info = Task.query.filter(and_(Task.name.like(task), Task.user_id == current_user.id)).first()
     alert_time = task_info.due_date - timedelta(hours=int(hours_before_due_date))
     schedule_mail.add_job(send_mail, 'date', run_date=alert_time, args=[user_info.email])
     schedule_mail.start()
@@ -324,7 +324,7 @@ def set_alert(current_user, task):
 def create_subtask(current_user, task):
     if request.method == 'GET':
         try:
-            task_info = Task.query.filter(and_(Task.name.like(task), Task.user_id.like(current_user.id))).first()
+            task_info = Task.query.filter(and_(Task.name.like(task), Task.user_id == current_user.id)).first()
             subtasks = Subtask.query.filter_by(task_id=task_info.id)
             data = []
             for subtask in subtasks:
@@ -334,7 +334,7 @@ def create_subtask(current_user, task):
             print('Error: ', e)
             return None
     else:
-        task_info = Task.query.filter(and_(Task.name.like(task), Task.user_id.like(current_user.id))).first()
+        task_info = Task.query.filter(and_(Task.name.like(task), Task.user_id == current_user.id)).first()
         if task_info:
             subtask = Subtask(
                 name=request.form['name'],
