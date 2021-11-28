@@ -204,119 +204,143 @@ def create_task(current_user):
             return jsonify(data)
         except Exception as e:
             print('Error: ', e)
-            return None
+            return "Error while fetching Tasks"
     else:
-        user_info = User.query.filter_by(username=username).first()
-        if user_info:
-            task = Task(
-                name=request.form['name'],
-                description=request.form['description'],
-                creation_date=datetime.now(),
-                due_date=datetime.strptime(request.form['due_date'], INCOMING_DATE_FMT) if request.form[
-                    'due_date'] else None,
-                user_id=user_info.id,
-            )
-            db.session.add(task)
-            db.session.commit()
-            output = {'msg': 'posted'}
-            response = Response(
-                mimetype="application/json",
-                response=json.dumps(output),
-                status=201
-            )
-            return response
-        return "User not found"
+        try:
+            user_info = User.query.filter_by(username=username).first()
+            if user_info:
+                task = Task(
+                    name=request.form['name'],
+                    description=request.form['description'],
+                    creation_date=datetime.now(),
+                    due_date=datetime.strptime(request.form['due_date'], INCOMING_DATE_FMT) if request.form[
+                        'due_date'] else None,
+                    user_id=user_info.id,
+                )
+                db.session.add(task)
+                db.session.commit()
+                output = {'msg': 'posted'}
+                response = Response(
+                    mimetype="application/json",
+                    response=json.dumps(output),
+                    status=201
+                )
+                return response
+            return "User not found"
+        except Exception as e:
+            print(e)
+            return "error while creating task"
 
 
 @app.route('/api/v1/searchTask', methods=['GET'])
 @token_required
 def search_task(current_user):
-    title = request.args.get('title')
-    task = Task.query.filter(and_(Task.name.like(title), Task.user_id == current_user.id)).first()
-    data = {'name': task.name, 'description': task.description, 'due_date': task.due_date, 'completed': task.completed}
-    return jsonify(data)
+    try:
+        title = request.args.get('title')
+        task = Task.query.filter(and_(Task.name.like(title), Task.user_id == current_user.id)).first()
+        data = {'name': task.name, 'description': task.description, 'due_date': task.due_date, 'completed': task.completed}
+        return jsonify(data)
+    except Exception as e:
+        print(e)
+        return "Error while searching for task. Task not found"
 
 
 @app.route('/api/v1/getTask', methods=['GET'])
 @token_required
 def get_task(current_user):
-    status = request.args.get('status', default=False, type=lambda v: v.lower() == 'true')
-    tasks = Task.query.filter(and_(Task.completed.is_(bool(status)), Task.user_id == current_user.id))
-    data = []
-    for task in tasks:
-        data.append({'name': task.name, 'description': task.description, 'due_date': task.due_date,
-                     'completed': task.completed})
-    return jsonify(data)
+    try:
+        status = request.args.get('status', default=False, type=lambda v: v.lower() == 'true')
+        tasks = Task.query.filter(and_(Task.completed.is_(bool(status)), Task.user_id == current_user.id))
+        data = []
+        for task in tasks:
+            data.append({'name': task.name, 'description': task.description, 'due_date': task.due_date,
+                         'completed': task.completed})
+        return jsonify(data)
+    except Exception as e:
+        print(e)
+        return "Error while fetching task by status."
 
 
 @app.route('/api/v1/completeTask', methods=['PUT'])
 @token_required
 def complete_task(current_user):
-    task_name = request.get_json()['task_name']
-    task = Task.query.filter(and_(Task.name.like(task_name), Task.user_id == current_user.id)).first()
-    task.completed = True
-    db.session.commit()
-    subtasks = Subtask.query.filter_by(task_id=task.id)
-    for subtask in subtasks:
-        subtask.completed = True
-    db.session.commit()
-    return "Task completed with subtask"
+    try:
+        task_name = request.get_json()['task_name']
+        task = Task.query.filter(and_(Task.name.like(task_name), Task.user_id == current_user.id)).first()
+        task.completed = True
+        db.session.commit()
+        subtasks = Subtask.query.filter_by(task_id=task.id)
+        for subtask in subtasks:
+            subtask.completed = True
+        db.session.commit()
+        return "Task completed with subtask"
+    except Exception as e:
+        print(e)
+        return "Error while completing the Task and subtasks"
 
 
 @app.route('/api/v1/filterTask', methods=['GET'])
 @token_required
 def filter_task(current_user):
-    username = current_user.username
-    filter_task_option = request.args.get('filter')
-    user_info = User.query.filter_by(username=username).first()
-    filtered_task = Task.query.filter_by(user_id=user_info.id)
-    today = date.today()
-    weekday = today.weekday()
-    mon = today - timedelta(days=weekday)
-    mon = datetime.combine(mon, datetime.min.time())
-    sun = today + timedelta(days=(6 - weekday))
-    sun = datetime.combine(sun, datetime.max.time())
-    filter_task_arr = []
-    if filter_task_option == 'Today':
-        tod = datetime.now()
-        today_filter = tod.replace(hour=23, minute=59, second=59)
-        for task in filtered_task:
-            if task.due_date <= today_filter:
-                filter_task_arr.append(task)
-    elif filter_task_option == 'This Week':
-        print(mon, sun)
-        for task in filtered_task:
-            if sun >= task.due_date >= mon:
-                filter_task_arr.append(task)
-    elif filter_task_option == 'Next Week':
-        mon = mon + timedelta(days=7)
-        sun = sun + timedelta(days=7)
-        print(mon, sun)
-        for task in filtered_task:
-            if sun >= task.due_date >= mon:
-                filter_task_arr.append(task)
-    elif filter_task_option == 'Overdue':
-        for task in filtered_task:
-            if task.due_date > datetime.now():
-                filter_task_arr.append(task)
-    data = []
-    for task in filter_task_arr:
-        data.append({'name': task.name, 'description': task.description, 'due_date': task.due_date,
-                     'completed': task.completed})
-    return jsonify(data)
+    try:
+        username = current_user.username
+        filter_task_option = request.args.get('filter')
+        user_info = User.query.filter_by(username=username).first()
+        filtered_task = Task.query.filter_by(user_id=user_info.id)
+        today = date.today()
+        weekday = today.weekday()
+        mon = today - timedelta(days=weekday)
+        mon = datetime.combine(mon, datetime.min.time())
+        sun = today + timedelta(days=(6 - weekday))
+        sun = datetime.combine(sun, datetime.max.time())
+        filter_task_arr = []
+        if filter_task_option == 'Today':
+            tod = datetime.now()
+            today_filter = tod.replace(hour=23, minute=59, second=59)
+            for task in filtered_task:
+                if task.due_date <= today_filter:
+                    filter_task_arr.append(task)
+        elif filter_task_option == 'This Week':
+            print(mon, sun)
+            for task in filtered_task:
+                if sun >= task.due_date >= mon:
+                    filter_task_arr.append(task)
+        elif filter_task_option == 'Next Week':
+            mon = mon + timedelta(days=7)
+            sun = sun + timedelta(days=7)
+            print(mon, sun)
+            for task in filtered_task:
+                if sun >= task.due_date >= mon:
+                    filter_task_arr.append(task)
+        elif filter_task_option == 'Overdue':
+            for task in filtered_task:
+                if task.due_date > datetime.now():
+                    filter_task_arr.append(task)
+        data = []
+        for task in filter_task_arr:
+            data.append({'name': task.name, 'description': task.description, 'due_date': task.due_date,
+                         'completed': task.completed})
+        return jsonify(data)
+    except Exception as e:
+        print(e)
+        return "Error while filtering Task"
 
 
 @app.route('/api/v1/<task>/setAlert', methods=['GET'])
 @token_required
 def set_alert(current_user, task):
-    hours_before_due_date = request.args.get('hours')
-    username = current_user.username
-    user_info = User.query.filter_by(username=username).first()
-    task_info = Task.query.filter(and_(Task.name.like(task), Task.user_id == current_user.id)).first()
-    alert_time = task_info.due_date - timedelta(hours=int(hours_before_due_date))
-    schedule_mail.add_job(send_mail, 'date', run_date=alert_time, args=[user_info.email])
-    schedule_mail.start()
-    return "Mail Sent"
+    try:
+        hours_before_due_date = request.args.get('hours')
+        username = current_user.username
+        user_info = User.query.filter_by(username=username).first()
+        task_info = Task.query.filter(and_(Task.name.like(task), Task.user_id == current_user.id)).first()
+        alert_time = task_info.due_date - timedelta(hours=int(hours_before_due_date))
+        schedule_mail.add_job(send_mail, 'date', run_date=alert_time, args=[user_info.email])
+        schedule_mail.start()
+        return "Mail Sent"
+    except Exception as e:
+        print(e)
+        return "Error while scheduling for alert."
 
 
 @app.route('/api/v1/<task>/subtask', methods=['GET', 'POST'])
@@ -332,25 +356,29 @@ def create_subtask(current_user, task):
             return jsonify(data)
         except Exception as e:
             print('Error: ', e)
-            return None
+            return "Error while fetching subtasks."
     else:
-        task_info = Task.query.filter(and_(Task.name.like(task), Task.user_id == current_user.id)).first()
-        if task_info:
-            subtask = Subtask(
-                name=request.form['name'],
-                description=request.form['description'],
-                task_id=task_info.id,
-            )
-            db.session.add(subtask)
-            db.session.commit()
-            output = {'msg': 'posted'}
-            response = Response(
-                mimetype="application/json",
-                response=json.dumps(output),
-                status=201
-            )
-            return response
-        return "User not found"
+        try:
+            task_info = Task.query.filter(and_(Task.name.like(task), Task.user_id == current_user.id)).first()
+            if task_info:
+                subtask = Subtask(
+                    name=request.form['name'],
+                    description=request.form['description'],
+                    task_id=task_info.id,
+                )
+                db.session.add(subtask)
+                db.session.commit()
+                output = {'msg': 'posted'}
+                response = Response(
+                    mimetype="application/json",
+                    response=json.dumps(output),
+                    status=201
+                )
+                return response
+            return "User not found"
+        except Exception as e:
+            print(e)
+            return "Error while creating subtask."
 
 
 if __name__ == '__main__':
