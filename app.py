@@ -20,7 +20,10 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 schedule_mail = BlockingScheduler()
 app = Flask(__name__)
 db = SQLAlchemy(app)
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
+uri = os.getenv("DATABASE_URL")
+if uri.startswith("postgres://"):
+    uri = uri.replace("postgres://", "postgresql://", 1)
+app.config['SQLALCHEMY_DATABASE_URI'] = uri
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY')
 INCOMING_DATE_FMT = '%d/%m/%Y %H:%M:%S'
 
