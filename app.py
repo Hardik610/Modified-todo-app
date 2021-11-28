@@ -180,7 +180,7 @@ def dashboard():
 def register():
     form = RegisterForm()
     if form.validate_on_submit():
-        hashed_password = flask_bcrypt.generate_password_hash(form.password.data)
+        hashed_password = flask_bcrypt.generate_password_hash(form.password.data).decode('utf8')
         new_user = User(username=form.username.data, password=hashed_password, email=form.email.data)
         db.session.add(new_user)
         db.session.commit()
